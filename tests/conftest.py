@@ -1,26 +1,39 @@
 # Copyright (C) 2012 Anaconda, Inc
 # SPDX-License-Identifier: BSD-3-Clause
+
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
-from pytest_mock import MockerFixture
 
+import conda
 from conda.base.context import context, reset_context
+from conda.plugins.hookspec import CondaSpecs
+from conda.plugins.manager import CondaPluginManager
+from conda.plugins.reporter_backends import plugins as reporter_backend_plugins
 
 from . import http_test_server
-from .fixtures_jlap import (  # noqa: F401
-    package_repository_base,
-    package_server,
-    package_server_ssl,
-)
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
 
 pytest_plugins = (
     # Add testing fixtures and internal pytest plugins here
-    "conda.testing",
     "conda.testing.gateways.fixtures",
     "conda.testing.notices.fixtures",
     "conda.testing.fixtures",
+    "tests.fixtures_jlap",
 )
+
+
+@pytest.hookimpl
+def pytest_report_header(config: pytest.Config):
+    # ensuring the expected development conda is being run
+    expected = Path(__file__).parent.parent / "conda" / "__init__.py"
+    assert expected.samefile(conda.__file__)
+    return f"conda.__file__: {conda.__file__}"
 
 
 @pytest.fixture
@@ -78,3 +91,21 @@ def do_not_register_envs(monkeypatch):
 def do_not_notify_outdated_conda(monkeypatch):
     """Do not notify about outdated conda during tests"""
     monkeypatch.setenv("CONDA_NOTIFY_OUTDATED_CONDA", "false")
+
+
+@pytest.fixture
+def plugin_manager(mocker) -> CondaPluginManager:
+    pm = CondaPluginManager()
+    pm.add_hookspecs(CondaSpecs)
+    mocker.patch("conda.plugins.manager.get_plugin_manager", return_value=pm)
+    return pm
+
+
+@pytest.fixture
+def plugin_manager_with_reporter_backends(plugin_manager) -> CondaPluginManager:
+    """
+    Returns a ``CondaPluginManager`` with default reporter backend plugins loaded
+    """
+    plugin_manager.load_plugins(*reporter_backend_plugins)
+
+    return plugin_manager
